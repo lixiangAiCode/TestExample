@@ -143,6 +143,37 @@
             margin-right: 5px;
         }
 
+        .sound-control {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .sound-toggle {
+            background: linear-gradient(145deg, #2196F3, #1976D2);
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .sound-toggle:hover {
+            background: linear-gradient(145deg, #1976D2, #2196F3);
+            transform: translateY(-1px);
+        }
+
+        .sound-toggle.muted {
+            background: linear-gradient(145deg, #757575, #616161);
+        }
+
         @media (max-width: 600px) {
             .game-container {
                 padding: 20px;
@@ -172,6 +203,13 @@
             <label><input type="radio" name="difficulty" value="easy" checked> 简单</label>
             <label><input type="radio" name="difficulty" value="medium"> 中等</label>
             <label><input type="radio" name="difficulty" value="hard"> 困难</label>
+        </div>
+
+        <div class="sound-control">
+            <button class="sound-toggle" id="soundToggle" onclick="toggleSound()">
+                <span id="soundIcon">🔊</span>
+                <span id="soundText">音效开启</span>
+            </button>
         </div>
 
         <canvas id="gameBoard" width="400" height="400"></canvas>
@@ -226,7 +264,120 @@
         let gameLoop;
         let gameSpeed = 150;
 
+        // 音效系统
+        let audioContext;
+        let soundEnabled = true;
+
+        // 初始化音效系统
+        function initAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (e) {
+                console.log('Web Audio API不支持');
+                soundEnabled = false;
+            }
+        }
+
+        // 播放音效的通用函数
+        function playSound(frequency, duration, type = 'sine', volume = 0.1) {
+            if (!soundEnabled || !audioContext) return;
+
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            oscillator.type = type;
+            
+            gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+
+        // 具体音效函数
+        let lastMoveSound = 0;
+        function playMoveSound() {
+            if (!soundEnabled) return;
+            // 限制移动音效频率，避免过于嘈杂
+            const now = Date.now();
+            if (now - lastMoveSound > 200) {
+                playSound(150, 0.08, 'square', 0.03);
+                lastMoveSound = now;
+            }
+        }
+
+        function playEatSound() {
+            if (!soundEnabled) return;
+            // 连续音效模拟吃东西的声音
+            playSound(400, 0.1, 'sine', 0.15);
+            setTimeout(() => playSound(600, 0.1, 'sine', 0.1), 50);
+        }
+
+        function playGameOverSound() {
+            if (!soundEnabled) return;
+            // 下降音效模拟失败
+            playSound(300, 0.2, 'sawtooth', 0.2);
+            setTimeout(() => playSound(200, 0.3, 'sawtooth', 0.15), 100);
+            setTimeout(() => playSound(150, 0.4, 'sawtooth', 0.1), 250);
+        }
+
+        function playStartSound() {
+            if (!soundEnabled) return;
+            // 上升音效模拟开始
+            playSound(200, 0.1, 'triangle', 0.1);
+            setTimeout(() => playSound(300, 0.1, 'triangle', 0.1), 80);
+            setTimeout(() => playSound(400, 0.15, 'triangle', 0.1), 160);
+        }
+
+        // 音效开关控制
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            const soundIcon = document.getElementById('soundIcon');
+            const soundText = document.getElementById('soundText');
+            const soundToggle = document.getElementById('soundToggle');
+            
+            if (soundEnabled) {
+                soundIcon.textContent = '🔊';
+                soundText.textContent = '音效开启';
+                soundToggle.classList.remove('muted');
+                // 恢复音频上下文
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            } else {
+                soundIcon.textContent = '🔇';
+                soundText.textContent = '音效关闭';
+                soundToggle.classList.add('muted');
+            }
+            
+            // 保存音效设置
+            localStorage.setItem('snakeSoundEnabled', soundEnabled);
+        }
+
         // 初始化
+        initAudio();
+        
+        // 恢复音效设置
+        const savedSoundSetting = localStorage.getItem('snakeSoundEnabled');
+        if (savedSoundSetting !== null) {
+            soundEnabled = savedSoundSetting === 'true';
+            if (!soundEnabled) {
+                toggleSound();
+                toggleSound(); // 调用两次以更新UI但保持关闭状态
+                soundEnabled = false;
+                const soundIcon = document.getElementById('soundIcon');
+                const soundText = document.getElementById('soundText');
+                const soundToggle = document.getElementById('soundToggle');
+                soundIcon.textContent = '🔇';
+                soundText.textContent = '音效关闭';
+                soundToggle.classList.add('muted');
+            }
+        }
+        
         highScoreElement.textContent = highScore;
         generateFood();
         drawGame();
@@ -358,6 +509,7 @@
                 score += 10;
                 scoreElement.textContent = score;
                 generateFood();
+                playEatSound(); // 播放吃食物音效
                 
                 // 增加难度（可选）
                 if (score % 50 === 0 && gameSpeed > 80) {
@@ -367,6 +519,7 @@
                 }
             } else {
                 snake.pop();
+                playMoveSound(); // 播放移动音效
             }
         }
 
@@ -382,6 +535,11 @@
         function startGame() {
             if (gameRunning) return;
             
+            // 用户交互后激活音频上下文
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+            
             setDifficulty();
             gameRunning = true;
             gamePaused = false;
@@ -391,6 +549,7 @@
             dx = 1; // 开始时向右移动
             dy = 0;
             
+            playStartSound(); // 播放开始音效
             gameLoop = setInterval(update, gameSpeed);
         }
 
@@ -423,6 +582,8 @@
         function gameOver() {
             gameRunning = false;
             clearInterval(gameLoop);
+            
+            playGameOverSound(); // 播放游戏结束音效
             
             // 检查是否创造新纪录
             if (score > highScore) {
